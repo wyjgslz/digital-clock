@@ -32,6 +32,15 @@
 
 覆盖安装说明：同签名（本仓库 `.signing/clock.jks`，未纳入版本库）可直接覆盖升级；换机器构建请沿用同一 keystore，或先卸载旧版。
 
+### Android 5.x 老设备：请用轻量版
+
+Android 5.0 / 5.1 的内置 WebView 太旧，跑不了上面的正式版。仓库里另附一个兼容版：
+
+- 安装包：[`DigitalClockLite.apk`](DigitalClockLite.apk)（165 KB，`minSdk 21`，包名 `com.doubao.digitalclock.lite`，可与正式版共存）
+- 源码目录：[`lite/`](lite)，构建：`./scripts/build-lite.sh`
+- 功能取舍：保留纯数字大时间、秒、公历 + 农历、天气、整点报时与夜间静音、6 套配色、字号三档、横屏与方向锁定；去掉了翻页动画、四种铃声切换、音量与字重字距微调（老内核不支持）
+- 农历改用内置算法（1900–2100），不再依赖系统 `Intl` 日历；天气走 XHR，被 CORS 拦住时自动切 Java 侧 `httpGet` 兜底
+
 ## 构建
 
 方式一，Android Studio：
@@ -53,6 +62,10 @@ export ANDROID_HOME=/path/to/android-sdk   # 需含 platforms/android-34 与 bui
 ## 项目结构
 
 ```
+lite/                                             # Android 5.x 兼容版
+  AndroidManifest.xml
+  java/com/doubao/digitalclock/lite/MainActivity.java
+  assets/index.html + chime.wav
 app/src/main/
   AndroidManifest.xml
   java/com/doubao/digitalclock/MainActivity.java   # WebView 壳 + JS 桥（方向、HTTP 兜底）

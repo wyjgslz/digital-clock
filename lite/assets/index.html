@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>数字时钟</title>
+<style>
+*{margin:0;padding:0;-webkit-tap-highlight-color:transparent;-webkit-box-sizing:border-box;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e9;
+  font-family:"Helvetica Neue",Arial,"Noto Sans CJK SC","Droid Sans Fallback",sans-serif;
+  -webkit-user-select:none;user-select:none}
+#stage{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden}
+#weather{position:absolute;left:0;width:100%;text-align:center;opacity:.62;letter-spacing:1px}
+#clockwrap{position:absolute;left:0;width:100%;text-align:center}
+#time{line-height:1;letter-spacing:0}
+#ampm{opacity:.5;margin-left:.08em}
+#sec{opacity:.5;margin-left:.06em}
+#bottom{position:absolute;left:0;width:100%;text-align:center;line-height:1.8;opacity:.68}
+#lunar-line{letter-spacing:1px}
+#gear{position:absolute;right:0;bottom:0;padding:16px 18px;font-size:20px;opacity:.22;color:#fff}
+#panel{position:absolute;left:0;bottom:0;width:100%;max-height:78%;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  background:#16171a;color:#e8e8ea;border-top-left-radius:14px;border-top-right-radius:14px;
+  -webkit-transform:translateY(102%);transform:translateY(102%);
+  -webkit-transition:-webkit-transform .18s ease-out;transition:transform .18s ease-out;
+  box-shadow:0 -8px 30px rgba(0,0,0,.6);display:none}
+#panel.open{display:block;-webkit-transform:translateY(0);transform:translateY(0)}
+.p-head{padding:14px 18px 8px;font-size:14px;opacity:.55;letter-spacing:1px}
+.row{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;
+  width:100%;padding:12px 18px;border-top:1px solid rgba(255,255,255,.07);font-size:15px}
+.row .k{-webkit-box-flex:1;-webkit-flex:1;flex:1}
+.btn{padding:6px 14px;margin-left:8px;border-radius:8px;background:rgba(255,255,255,.08);font-size:13px;color:#cfd2d8}
+.btn.on{background:#3a7bfd;color:#fff}
+.sw{min-width:52px;text-align:center}
+.swatches{padding:10px 18px 14px;border-top:1px solid rgba(255,255,255,.07)}
+.dot{display:inline-block;width:42px;height:42px;margin:0 8px 8px 0;border-radius:50%;
+  border:2px solid rgba(255,255,255,.18)}
+.dot.on{border-color:#fff}
+.foot{padding:14px 18px 26px;border-top:1px solid rgba(255,255,255,.07);font-size:12px;opacity:.45;line-height:1.6}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="weather"></div>
+  <div id="clockwrap"><span id="time">--:--</span><span id="sec"></span></div>
+  <div id="bottom"><div id="date"></div><div id="lunar-line"></div></div>
+  <div id="gear">&#9881;</div>
+  <div id="panel"></div>
+</div>
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- 设置 ---------- */
+  var THEMES = [
+    {bg:"#0b0c0e", fg:"#f4f1e9", n:"曜石"},
+    {bg:"#08131e", fg:"#d8e9ff", n:"午夜蓝"},
+    {bg:"#07130f", fg:"#d9f2e4", n:"墨绿"},
+    {bg:"#141010", fg:"#fbdcb0", n:"暖砂"},
+    {bg:"#f5f2ec", fg:"#1d1f22", n:"樱白"},
+    {bg:"#050208", fg:"#38f9d7", n:"霓虹"}
+  ];
+  var DEFAULT = {theme:0, sec:1, date:1, lunar:1, weather:1, h24:1, chime:1, size:1, orient:0};
+  var S = {};
+  (function load(){
+    var i, d = DEFAULT, raw = null;
+    try { raw = localStorage.getItem("fc.lite"); } catch(e){}
+    if (raw) { try { var o = JSON.parse(raw); for (i in d) { if (o[i] !== undefined) d[i] = o[i]; } } catch(e){} }
+    S = d;
+  })();
+  function save(){
+    try { localStorage.setItem("fc.lite", JSON.stringify(S)); } catch(e){}
+  }
+
+  var W = 0, H = 0, landscape = false;
+
+  /* ---------- 布局 ---------- */
+  function layout(){
+    W = window.innerWidth; H = window.innerHeight;
+    landscape = W > H;
+    var th = THEMES[S.theme] || THEMES[0];
+    document.body.style.background = th.bg;
+    document.body.style.color = th.fg;
+
+    var base = Math.min(W, H);
+    var fsWeather = Math.max(11, Math.round(base * 0.028));
+    var weatherTop = Math.round(H * (landscape ? 0.05 : 0.045));
+    var wEl = $("weather");
+    wEl.style.top = weatherTop + "px";
+    wEl.style.fontSize = fsWeather + "px";
+    wEl.style.display = S.weather ? "block" : "none";
+
+    // 时间字号：宽度按 5.5 字符估算，高度按屏高比例
+    var scale = S.size === 0 ? 0.82 : (S.size === 2 ? 1.12 : 1);
+    var byW = W / (S.sec ? 3.55 : 2.95);
+    var byH = H * (landscape ? 0.52 : 0.42) / scale;
+    var fs = Math.min(byW, byH) * scale;
+    fs = Math.round(fs);
+    var tEl = $("time");
+    tEl.style.fontSize = fs + "px";
+    tEl.style.fontWeight = (S.size === 2 ? "300" : "200");
+
+    var clockTop = Math.round(H * (landscape ? 0.42 : 0.44) - fs * 0.5);
+    var cw = $("clockwrap");
+    cw.style.top = clockTop + "px";
+
+    var secEl = $("sec");
+    secEl.style.fontSize = Math.round(fs * 0.34) + "px";
+    secEl.style.display = S.sec ? "inline" : "none";
+
+    var bEl = $("bottom");
+    bEl.style.top = Math.round(H * (landscape ? 0.68 : 0.76)) + "px";
+    bEl.style.fontSize = Math.max(12, Math.round(base * 0.032)) + "px";
+    $("date").style.display = S.date ? "block" : "none";
+    $("lunar-line").style.display = S.lunar ? "block" : "none";
+  }
+  function $(id){ return document.getElementById(id); }
+
+  /* ---------- 农历 ---------- */
+  var LUNAR_INFO = [
+    0x04bd8,0x04ae0,0x0a570,0x054d5,0x0d260,0x0d950,0x16554,0x056a0,0x09ad0,0x055d2,
+    0x04ae0,0x0a5b6,0x0a4d0,0x0d250,0x1d255,0x0b540,0x0d6a0,0x0ada2,0x095b0,0x14977,
+    0x04970,0x0a4b0,0x0b4b5,0x06a50,0x06d40,0x1ab54,0x02b60,0x09570,0x052f2,0x04970,
+    0x06566,0x0d4a0,0x0ea50,0x06e95,0x05ad0,0x02b60,0x186e3,0x092e0,0x1c8d7,0x0c950,
+    0x0d4a0,0x1d8a6,0x0b550,0x056a0,0x1a5b4,0x025d0,0x092d0,0x0d2b2,0x0a950,0x0b557,
+    0x06ca0,0x0b550,0x15355,0x04da0,0x0a5b0,0x14573,0x052b0,0x0a9a8,0x0e950,0x06aa0,
+    0x0aea6,0x0ab50,0x04b60,0x0aae4,0x0a570,0x05260,0x0f263,0x0d950,0x05b57,0x056a0,
+    0x096d0,0x04dd5,0x04ad0,0x0a4d0,0x0d4d4,0x0d250,0x0d558,0x0b540,0x0b6a0,0x195a6,
+    0x095b0,0x049b0,0x0a974,0x0a4b0,0x0b27a,0x06a50,0x06d40,0x0af46,0x0ab60,0x09570,
+    0x04af5,0x04970,0x064b0,0x074a3,0x0ea50,0x06b58,0x055c0,0x0ab60,0x096d5,0x092e0,
+    0x0c960,0x0d954,0x0d4a0,0x0da50,0x07552,0x056a0,0x0abb7,0x025d0,0x092d0,0x0cab5,
+    0x0a950,0x0b4a0,0x0baa4,0x0ad50,0x055d9,0x04ba0,0x0a5b0,0x15176,0x052b0,0x0a930,
+    0x07954,0x06aa0,0x0ad50,0x05b52,0x04b60,0x0a6e6,0x0a4e0,0x0d260,0x0ea65,0x0d530,
+    0x05aa0,0x076a3,0x096d0,0x04afb,0x04ad0,0x0a4d0,0x1d0b6,0x0d250,0x0d520,0x0dd45,
+    0x0b5a0,0x056d0,0x055b2,0x049b0,0x0a577,0x0a4b0,0x0aa50,0x1b255,0x06d20,0x0ada0,
+    0x14b63,0x09370,0x049f8,0x04970,0x064b0,0x168a6,0x0ea50,0x06b20,0x1a6c4,0x0aae0,
+    0x0a2e0,0x0d2e3,0x0c960,0x0d557,0x0d4a0,0x0da50,0x05d55,0x056a0,0x0a6d0,0x055d4,
+    0x052d0,0x0a9b8,0x0a950,0x0b4a0,0x0b6a6,0x0ad50,0x055a0,0x0aba4,0x0a5b0,0x052b0,
+    0x0b273,0x06930,0x07337,0x06aa0,0x0ad50,0x14b55,0x04b60,0x0a570,0x054e4,0x0d160,
+    0x0e968,0x0d520,0x0daa0,0x16aa6,0x056d0,0x04ae0,0x0a9d4,0x0a2d0,0x0d150,0x0f252,
+    0x0d520];
+
+  var GAN = "甲乙丙丁戊己庚辛壬癸", ZHI = "子丑寅卯辰巳午未申酉戌亥";
+  var ZODIAC = "鼠牛虎兔龙蛇马羊猴鸡狗猪";
+  var NUM_CN = ["","一","二","三","四","五","六","七","八","九","十"];
+  var DIGIT_CN = ["零","一","二","三","四","五","六","七","八","九"];
+
+  function leapMonth(y){ return LUNAR_INFO[y-1900] & 0xf; }
+  function leapDays(y){
+    if (leapMonth(y)) return ((LUNAR_INFO[y-1900] & 0x10000) ? 30 : 29);
+    return 0;
+  }
+  function monthDays(y, m){
+    return ((LUNAR_INFO[y-1900] & (0x10000 >> m)) ? 30 : 29);
+  }
+  function yearDays(y){
+    var i, sum = 348;
+    for (i = 0x8000; i > 0x8; i >>= 1) { sum += ((LUNAR_INFO[y-1900] & i) ? 1 : 0); }
+    return sum + leapDays(y);
+  }
+
+  function solar2lunar(y, m, d){
+    var offset = Math.floor((Date.UTC(y, m - 1, d) - Date.UTC(1900, 0, 31)) / 86400000);
+    var i, temp = 0, ly = 1900, lm = 1, ld = 1, isLeap = false;
+    for (i = 1900; i < 2101 && offset > 0; i++) { temp = yearDays(i); offset -= temp; }
+    if (offset < 0) { offset += temp; i--; }
+    ly = i;
+    var leap = leapMonth(ly), isLeapYear = false;
+    for (i = 1; i < 13 && offset > 0; i++) {
+      if (leap > 0 && i === (leap + 1) && !isLeapYear) { --i; isLeapYear = true; temp = leapDays(ly); }
+      else { temp = monthDays(ly, i); }
+      if (isLeapYear && i === (leap + 1)) isLeapYear = false;
+      offset -= temp;
+    }
+    if (offset === 0 && leap > 0 && i === leap + 1) {
+      if (isLeapYear) { isLeapYear = false; } else { isLeapYear = true; --i; }
+    }
+    if (offset < 0) { offset += temp; --i; }
+    lm = i; ld = offset + 1;
+    isLeap = isLeapYear;
+
+    var gzYear = (((ly - 1864) % 60) + 60) % 60;
+    var gz = GAN.charAt(gzYear % 10) + ZHI.charAt(gzYear % 12);
+    var zodiac = ZODIAC.charAt(gzYear % 12);
+    return {y: ly, m: lm, d: ld, leap: isLeap, gz: gz, zodiac: zodiac};
+  }
+
+  function monthName(m){ return (m <= 10 ? NUM_CN[m] : "十" + (m === 11 ? "一" : "二")) + "月"; }
+  function dayName(d){
+    if (d === 10) return "初十";
+    if (d === 20) return "二十";
+    if (d === 30) return "三十";
+    var pre = d < 11 ? "初" : (d < 21 ? "十" : "廿");
+    var n = d % 10;
+    if (d > 20 && d % 10 === 0) return "廿十";
+    return pre + DIGIT_CN[n];
+  }
+
+  /* ---------- 时间 ---------- */
+  var WEEK = ["星期日","星期一","星期二","星期三","星期四","星期五","星期六"];
+  var lastChimeKey = "";
+
+  function pad(n){ return n < 10 ? "0" + n : "" + n; }
+
+  function tick(){
+    var now = new Date();
+    var h = now.getHours(), mi = now.getMinutes(), se = now.getSeconds();
+    var hh, suffix = "";
+    if (S.h24) { hh = pad(h); }
+    else { var h12 = h % 12; hh = pad(h12 === 0 ? 12 : h12); suffix = h < 12 ? "AM" : "PM"; }
+
+    $("time").innerHTML = hh + ":" + pad(mi) + (S.h24 ? "" : '<span id="ampm" style="font-size:.28em">' + suffix + '</span>');
+    $("sec").innerHTML = pad(se);
+
+    var y = now.getFullYear(), mo = now.getMonth() + 1, da = now.getDate();
+    $("date").innerHTML = y + " 年 " + mo + " 月 " + da + " 日 &nbsp;" + WEEK[now.getDay()];
+
+    if (S.lunar) {
+      var l = solar2lunar(y, mo, da);
+      $("lunar-line").innerHTML = "农历" + l.gz + "年 " + (l.leap ? "闰" : "") + monthName(l.m) + dayName(l.d) +
+        " &nbsp;·&nbsp; " + l.zodiac;
+    }
+
+    if (S.chime && mi === 0 && se <= 1) {
+      var key = y + "-" + mo + "-" + da + "-" + h;
+      if (lastChimeKey !== key) { lastChimeKey = key; if (!isNightQuiet(h)) playChime(); }
+    }
+  }
+
+  function isNightQuiet(h){
+    // 夜间静音：23:00 - 07:00
+    return (h >= 23 || h < 7);
+  }
+
+  /* ---------- 报时音 ---------- */
+  var CHIME_SRC = "chime.wav";
+  var audio = null, audioReady = false;
+  function initAudio(){
+    if (audioReady) return;
+    try {
+      audio = new Audio(CHIME_SRC);
+      audio.preload = "auto";
+      audio.volume = 0.85;
+      audioReady = true;
+    } catch(e){ audio = null; }
+  }
+  function playChime(){
+    initAudio();
+    if (!audio) return;
+    try { audio.currentTime = 0; var p = audio.play(); if (p && p["catch"]) p["catch"](function(){}); } catch(e){}
+  }
+
+  /* ---------- 天气 ---------- */
+  var WMO = {
+    0:"晴",1:"晴间多云",2:"多云",3:"阴",45:"雾",48:"雾凇",
+    51:"毛毛雨",53:"小雨",55:"细雨",56:"冻雨",57:"冻雨",
+    61:"小雨",63:"中雨",65:"大雨",66:"冻雨",67:"冻雨",
+    71:"小雪",73:"中雪",75:"大雪",77:"米雪",
+    80:"阵雨",81:"强阵雨",82:"暴雨",85:"阵雪",86:"强阵雪",
+    95:"雷阵雨",96:"雷阵雨伴冰雹",99:"强雷阵雨"
+  };
+  var LAT = 36.0611, LON = 103.8343, CITY = "兰州", weatherTimer = null;
+
+  function request(url, cb){
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open("GET", url, true);
+      xhr.onreadystatechange = function(){
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) { cb(xhr.responseText); }
+          else if (window.HostBridge && HostBridge.httpGet) {
+            HostBridge.httpGet(url, "__wx" + (++reqSeq));
+            window["__wx" + reqSeq] = cb;
+          } else { cb(null); }
+        }
+      };
+      xhr.send();
+    } catch(e){
+      if (window.HostBridge && HostBridge.httpGet) {
+        HostBridge.httpGet(url, "__wx" + (++reqSeq));
+        window["__wx" + reqSeq] = cb;
+      } else { cb(null); }
+    }
+  }
+  var reqSeq = 0;
+
+  function loadWeather(){
+    if (!S.weather) return;
+    $("weather").innerHTML = "加载中…";
+    if (weatherTimer) clearTimeout(weatherTimer);
+    weatherTimer = setTimeout(function(){
+      if ($("weather").innerHTML.indexOf("加载中") >= 0) retryWeather();
+    }, 9000);
+    var url = "https://api.open-meteo.com/v1/forecast?latitude=" + LAT + "&longitude=" + LON +
+      "&current=temperature_2m,weather_code&timezone=auto&t=" + Math.floor(new Date().getTime() / 1000);
+    request(url, function(txt){
+      if (!txt) { retryWeather(); return; }
+      try {
+        var o = JSON.parse(txt), c = o.current || o.current_weather;
+        if (!c) { retryWeather(); return; }
+        var t = Math.round(c.temperature_2m !== undefined ? c.temperature_2m : c.temperature);
+        var code = c.weather_code !== undefined ? c.weather_code : c.weathercode;
+        $("weather").innerHTML = (WMO[code] || "阴") + " &nbsp;" + t + "° &nbsp;·&nbsp; " + CITY;
+      } catch(e){ retryWeather(); }
+    });
+  }
+  function retryWeather(){
+    $("weather").innerHTML = "天气获取失败";
+    if (weatherTimer) clearTimeout(weatherTimer);
+    weatherTimer = setTimeout(loadWeather, 60000);
+  }
+
+  function locate(){
+    if (!navigator.geolocation) { setTimeout(loadWeather, 0); return; }
+    try {
+      navigator.geolocation.getCurrentPosition(function(pos){
+        LAT = pos.coords.latitude; LON = pos.coords.longitude;
+        var rurl = "https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=" + LAT +
+          "&longitude=" + LON + "&localityLanguage=zh";
+        request(rurl, function(txt){
+          if (txt) { try { var o = JSON.parse(txt); CITY = o.city || o.locality || CITY; } catch(e){} }
+          loadWeather();
+        });
+        loadWeather();
+      }, function(){ loadWeather(); }, {timeout: 8000, maximumAge: 3600000});
+    } catch(e){ loadWeather(); }
+  }
+
+  /* ---------- 屏幕方向 ---------- */
+  function applyOrient(){
+    if (window.HostBridge && HostBridge.setOrientation) {
+      HostBridge.setOrientation(S.orient === 1 ? 2 : (S.orient === 2 ? 1 : 0));
+    }
+  }
+
+  /* ---------- 设置面板 ---------- */
+  function buildPanel(){
+    var p = $("panel"), html = "", i;
+    html += '<div class="p-head">外观与显示</div>';
+    html += '<div class="swatches" id="swatches"></div>';
+    html += row("显示秒", "sec");
+    html += row("显示日期", "date");
+    html += row("显示农历", "lunar");
+    html += row("显示天气", "weather");
+    html += row("24 小时制", "h24");
+    html += '<div class="row"><span class="k">字号</span>' +
+      '<span class="btn" data-size="0">小</span><span class="btn" data-size="1">中</span><span class="btn" data-size="2">大</span></div>';
+    html += '<div class="row"><span class="k">屏幕方向</span>' +
+      '<span class="btn" data-orient="0">自动</span><span class="btn" data-orient="1">横屏</span><span class="btn" data-orient="2">竖屏</span></div>';
+    html += '<div class="p-head">报时与声音</div>';
+    html += row("整点报时", "chime");
+    html += '<div class="row"><span class="k">夜间 23 点至 7 点自动静音</span><span class="btn" id="tryBtn">试听</span></div>';
+    html += '<div class="foot">此版本为 Android 5 兼容版，功能做了精简。设置会自动保存。</div>';
+    p.innerHTML = html;
+
+    // 配色圆点
+    var sw = $("swatches");
+    for (i = 0; i < THEMES.length; i++) {
+      var d = document.createElement("span");
+      d.className = "dot" + (S.theme === i ? " on" : "");
+      d.setAttribute("data-theme", i);
+      d.style.background = THEMES[i].bg;
+      d.style.borderColor = S.theme === i ? THEMES[i].fg : "rgba(255,255,255,.18)";
+      sw.appendChild(d);
+    }
+    refreshPanel();
+    p.onclick = onPanelClick;
+    $("gear").onclick = function(){
+      p.className = p.className === "open" ? "" : "open";
+    };
+    $("stage").onclick = function(ev){
+      var t = ev.target || ev.srcElement;
+      if (t.id !== "gear" && t.id !== "panel" && !inPanel(t)) return;
+    };
+  }
+  function inPanel(el){
+    while (el) { if (el.id === "panel") return true; el = el.parentNode; }
+    return false;
+  }
+  function row(label, key){
+    return '<div class="row"><span class="k">' + label + '</span><span class="btn sw" data-key="' + key + '">—</span></div>';
+  }
+  function refreshPanel(){
+    var keys = ["sec","date","lunar","weather","h24","chime"], i, el;
+    for (i = 0; i < keys.length; i++) {
+      el = document.querySelector('[data-key="' + keys[i] + '"]');
+      if (!el) continue;
+      el.innerHTML = S[keys[i]] ? "开" : "关";
+      if (S[keys[i]]) el.className = "btn sw on"; else el.className = "btn sw";
+    }
+    var sizes = document.querySelectorAll("[data-size]"), orients = document.querySelectorAll("[data-orient]");
+    for (i = 0; i < sizes.length; i++) {
+      sizes[i].className = "btn" + (parseInt(sizes[i].getAttribute("data-size"), 10) === S.size ? " on" : "");
+    }
+    for (i = 0; i < orients.length; i++) {
+      orients[i].className = "btn" + (parseInt(orients[i].getAttribute("data-orient"), 10) === S.orient ? " on" : "");
+    }
+  }
+  function onPanelClick(ev){
+    var t = ev.target || ev.srcElement;
+    if (!t || t.className === "" ) {}
+    var key = t.getAttribute && t.getAttribute("data-key");
+    var theme = t.getAttribute && t.getAttribute("data-theme");
+    var size = t.getAttribute && t.getAttribute("data-size");
+    var orient = t.getAttribute && t.getAttribute("data-orient");
+
+    if (key) { S[key] = S[key] ? 0 : 1; }
+    else if (theme !== null && theme !== undefined && theme !== "") {
+      S.theme = parseInt(theme, 10);
+      var dots = document.querySelectorAll(".dot"), i;
+      for (i = 0; i < dots.length; i++) {
+        dots[i].className = "dot" + (i === S.theme ? " on" : "");
+        dots[i].style.borderColor = i === S.theme ? THEMES[i].fg : "rgba(255,255,255,.18)";
+      }
+    }
+    else if (size !== null && size !== undefined && size !== "") { S.size = parseInt(size, 10); }
+    else if (orient !== null && orient !== undefined && orient !== "") { S.orient = parseInt(orient, 10); applyOrient(); }
+    else if (t.id === "tryBtn") { playChime(); }
+
+    save(); refreshPanel(); layout();
+    if (key === "weather" && S.weather) loadWeather();
+  }
+
+  /* ---------- 启动 ---------- */
+  function boot(){
+    buildPanel();
+    layout();
+    tick();
+    setInterval(tick, 500);
+    if (S.weather) locate();
+    applyOrient();
+    window.onresize = function(){ setTimeout(layout, 120); };
+    window.onorientationchange = function(){ setTimeout(layout, 220); };
+    // 首次触摸时解锁音频
+    document.addEventListener("touchstart", function(){ initAudio(); }, false);
+    document.addEventListener("click", function(){ initAudio(); }, false);
+  }
+
+  if (document.readyState === "complete" || document.readyState === "interactive") boot();
+  else document.addEventListener("DOMContentLoaded", boot, false);
+})();
+</script>
+</body>
+</html>
