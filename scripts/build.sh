@@ -8,12 +8,24 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SDK="${ANDROID_HOME:?请先设置 ANDROID_HOME}"
-BT="$SDK/build-tools/33.0.1"
-AJ="$SDK/platforms/android-34/android.jar"
+# 自动探测 build-tools 与 platform，可用 BUILD_TOOLS / PLATFORM 环境变量指定
+BT="${BUILD_TOOLS:-$(ls -d "$SDK"/build-tools/* 2>/dev/null | sort -V | tail -1)}"
+PLATFORM="${PLATFORM:-$(ls -d "$SDK"/platforms/android-* 2>/dev/null | sort -V | tail -1)}"
+AJ="$PLATFORM/android.jar"
 OUT="$ROOT/build"
 KS="${KEYSTORE:-$ROOT/.signing/clock.jks}"
 KS_PASS="${KEYSTORE_PASS:-clock2026}"
 KS_ALIAS="${KEYSTORE_ALIAS:-clock}"
+
+# 没有 keystore 时自动生成一个（仅用于本地/CI 试构建，签名与正式版不同，不能覆盖升级）
+if [ ! -f "$KS" ]; then
+  echo "未找到 keystore，自动生成临时签名密钥：$KS"
+  mkdir -p "$(dirname "$KS")"
+  keytool -genkeypair -v -keystore "$KS" -alias "$KS_ALIAS" \
+    -keyalg RSA -keysize 2048 -validity 10000 \
+    -storepass "$KS_PASS" -keypass "$KS_PASS" \
+    -dname "CN=Digital Clock, OU=Dev, O=DigitalClock, L=NA, S=NA, C=CN" >/dev/null 2>&1
+fi
 
 rm -rf "$OUT"
 mkdir -p "$OUT/res" "$OUT/classes" "$OUT/dex"
