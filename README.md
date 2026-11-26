@@ -36,10 +36,11 @@
 
 Android 5.0 / 5.1 的内置 WebView 太旧，跑不了上面的正式版。仓库里另附一个兼容版：
 
-- 安装包：[`DigitalClockLite.apk`](DigitalClockLite.apk)（165 KB，`minSdk 21`，包名 `com.doubao.digitalclock.lite`，可与正式版共存）
+- 安装包：[`DigitalClockLite.apk`](DigitalClockLite.apk)（173 KB，v1.4，`minSdk 21`，包名 `com.doubao.digitalclock.lite`，可与正式版共存）
 - 源码目录：[`lite/`](lite)，构建：`./scripts/build-lite.sh`
 - 功能取舍：保留纯数字大时间、秒、公历 + 农历、天气、整点报时与夜间静音、6 套配色、字号三档、横屏与方向锁定；去掉了翻页动画、四种铃声切换、音量与字重字距微调（老内核不支持）
 - 农历改用内置算法（1900–2100），不再依赖系统 `Intl` 日历；天气走 XHR，被 CORS 拦住时自动切 Java 侧 `httpGet` 兜底
+- v1.4 新增「相册背景图」：设置面板可选一张本地照片做背景（长边压到 1280、JPEG q0.72 存在 `filesDir/custom_bg.jpg`），带深色渐变蒙版保证数字可读，可随时换图或清除
 
 ## 构建
 
