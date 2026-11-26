@@ -24,7 +24,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e
   -webkit-transition:-webkit-transform .18s ease-out;transition:transform .18s ease-out;
   box-shadow:0 -8px 30px rgba(0,0,0,.6);display:none}
 #panel.open{display:block;-webkit-transform:translateY(0);transform:translateY(0)}
-.p-head{padding:14px 18px 8px;font-size:14px;opacity:.55;letter-spacing:1px}
+.p-head{padding:14px 18px 8px;font-size:14px;opacity:.55;letter-spacing:1px;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center}
+.p-head span{-webkit-box-flex:1;-webkit-flex:1;flex:1}
+.p-head .done{-webkit-box-flex:0;-webkit-flex:0 0 auto;flex:0 0 auto;padding:6px 18px;border-radius:8px;background:#3a7bfd;color:#fff;font-size:13px;opacity:1}
 .row{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;
   width:100%;padding:12px 18px;border-top:1px solid rgba(255,255,255,.07);font-size:15px}
 .row .k{-webkit-box-flex:1;-webkit-flex:1;flex:1}
@@ -57,9 +59,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e
     {bg:"#07130f", fg:"#d9f2e4", n:"墨绿"},
     {bg:"#141010", fg:"#fbdcb0", n:"暖砂"},
     {bg:"#f5f2ec", fg:"#1d1f22", n:"樱白"},
-    {bg:"#050208", fg:"#38f9d7", n:"霓虹"}
+    {bg:"#050208", fg:"#38f9d7", n:"霓虹"},
+    {bg:"#04100a", fg:"#4ade80", n:"翠绿"},
+    {bg:"#020804", fg:"#a3ff5c", n:"荧光绿"}
   ];
-  var DEFAULT = {theme:0, sec:1, date:1, lunar:1, weather:1, h24:1, chime:1, size:1, orient:0};
+  var DEFAULT = {theme:0, sec:1, date:1, lunar:1, weather:1, h24:1, chime:1, size:1, orient:0, bgimg:0};
   var S = {};
   (function load(){
     var i, d = DEFAULT, raw = null;
@@ -75,11 +79,16 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e
 
   /* ---------- 布局 ---------- */
   function layout(){
-    W = window.innerWidth; H = window.innerHeight;
+    if (window.__metrics && window.__metrics.w > 0) {
+      W = window.__metrics.w; H = window.__metrics.h;
+    } else {
+      W = window.innerWidth; H = window.innerHeight;
+    }
     landscape = W > H;
     var th = THEMES[S.theme] || THEMES[0];
-    document.body.style.background = th.bg;
+    document.body.style.backgroundColor = th.bg;
     document.body.style.color = th.fg;
+    applyBgImage(th.bg);
 
     var base = Math.min(W, H);
     var fsWeather = Math.max(11, Math.round(base * 0.028));
@@ -114,6 +123,108 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e
     $("lunar-line").style.display = S.lunar ? "block" : "none";
   }
   function $(id){ return document.getElementById(id); }
+
+  /* ---------- 相册背景图 ---------- */
+  var CUSTOM_BG = "";
+  var BG_LS_KEY = "fc.lite.bg";
+
+  function applyBgImage(baseColor){
+    var b = document.body;
+    b.style.backgroundColor = baseColor;
+    if (S.bgimg && CUSTOM_BG) {
+      b.style.backgroundImage = 'linear-gradient(180deg, rgba(0,0,0,.30) 0%, rgba(0,0,0,.62) 100%), url("' + CUSTOM_BG + '")';
+      b.style.backgroundSize = "cover, cover";
+      b.style.backgroundPosition = "center, center";
+      b.style.backgroundRepeat = "no-repeat, no-repeat";
+    } else {
+      b.style.backgroundImage = "";
+      b.style.backgroundSize = "";
+      b.style.backgroundPosition = "";
+      b.style.backgroundRepeat = "";
+    }
+  }
+
+  function hasBgHost(){
+    try { return !!(window.HostBridge && typeof HostBridge.loadBg === "function"); } catch(e){ return false; }
+  }
+
+  function loadCustomBg(){
+    CUSTOM_BG = "";
+    try {
+      if (hasBgHost()) {
+        var s = HostBridge.loadBg();
+        if (s && s.length > 24) CUSTOM_BG = s;
+      } else {
+        var t = localStorage.getItem(BG_LS_KEY);
+        if (t && t.length > 24) CUSTOM_BG = t;
+      }
+    } catch(e){ CUSTOM_BG = ""; }
+    return CUSTOM_BG;
+  }
+
+  function storeCustomBg(dataUrl){
+    try { if (hasBgHost() && HostBridge.saveBg(dataUrl)) return true; } catch(e){}
+    try { localStorage.setItem(BG_LS_KEY, dataUrl); return true; }
+    catch(e){ alert("保存失败了，换一张小一点的图片试试。"); return false; }
+  }
+
+  function clearCustomBg(){
+    CUSTOM_BG = "";
+    try { if (hasBgHost()) HostBridge.clearBg(); } catch(e){}
+    try { localStorage.removeItem(BG_LS_KEY); } catch(e){}
+    S.bgimg = 0;
+    save();
+    layout();
+    refreshPanel();
+  }
+
+  function pickCustomBg(){
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.style.display = "none";
+    document.body.appendChild(input);
+
+    function cleanup(){ try { document.body.removeChild(input); } catch(e){} }
+
+    input.addEventListener("change", function(){
+      var file = input.files && input.files[0];
+      if (!file) { cleanup(); return; }
+      var reader = new FileReader();
+      reader.onload = function(){
+        var img = new Image();
+        img.onload = function(){
+          try {
+            // 老平板性能有限，长边压到 1280 再存，既清楚又不卡
+            var maxSide = 1280;
+            var sw = img.naturalWidth || img.width || 1;
+            var sh = img.naturalHeight || img.height || 1;
+            var sc = Math.min(1, maxSide / Math.max(sw, sh));
+            var cv = document.createElement("canvas");
+            cv.width = Math.round(sw * sc);
+            cv.height = Math.round(sh * sc);
+            var ctx = cv.getContext("2d");
+            ctx.drawImage(img, 0, 0, cv.width, cv.height);
+            var dataUrl = cv.toDataURL("image/jpeg", 0.72);
+            if (storeCustomBg(dataUrl)) {
+              CUSTOM_BG = dataUrl;
+              S.bgimg = 1;
+              save();
+              layout();
+              refreshPanel();
+            }
+          } catch(e){ alert("图片处理失败：" + e); }
+          cleanup();
+        };
+        img.onerror = function(){ alert("这张图片读不出来，换一张试试。"); cleanup(); };
+        img.src = reader.result;
+      };
+      reader.onerror = function(){ alert("读取图片失败。"); cleanup(); };
+      reader.readAsDataURL(file);
+    }, false);
+
+    input.click();
+  }
 
   /* ---------- 农历 ---------- */
   var LUNAR_INFO = [
@@ -261,50 +372,67 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e
   var LAT = 36.0611, LON = 103.8343, CITY = "兰州", weatherTimer = null;
 
   function request(url, cb){
+    // 老 WebView 里 file:// 页面的 XHR 常被 CORS 拦，优先用 Java 桥
+    if (window.HostBridge && HostBridge.httpGet) {
+      reqSeq++;
+      var name = "__wx" + reqSeq;
+      window[name] = cb;
+      try { HostBridge.httpGet(url, name); return; } catch(e){}
+    }
     try {
       var xhr = new XMLHttpRequest();
       xhr.open("GET", url, true);
       xhr.onreadystatechange = function(){
         if (xhr.readyState === 4) {
           if (xhr.status === 200) { cb(xhr.responseText); }
-          else if (window.HostBridge && HostBridge.httpGet) {
-            HostBridge.httpGet(url, "__wx" + (++reqSeq));
-            window["__wx" + reqSeq] = cb;
-          } else { cb(null); }
+          else { cb(null); }
         }
       };
       xhr.send();
-    } catch(e){
-      if (window.HostBridge && HostBridge.httpGet) {
-        HostBridge.httpGet(url, "__wx" + (++reqSeq));
-        window["__wx" + reqSeq] = cb;
-      } else { cb(null); }
-    }
+    } catch(e){ cb(null); }
   }
   var reqSeq = 0;
+
+  function showWeather(txt){
+    if (txt && txt.length) {
+      $("weather").innerHTML = txt + " &nbsp;·&nbsp; " + CITY;
+    } else {
+      $("weather").innerHTML = "网络不可用 · 点击重试";
+    }
+  }
 
   function loadWeather(){
     if (!S.weather) return;
     $("weather").innerHTML = "加载中…";
     if (weatherTimer) clearTimeout(weatherTimer);
     weatherTimer = setTimeout(function(){
-      if ($("weather").innerHTML.indexOf("加载中") >= 0) retryWeather();
-    }, 9000);
+      if ($("weather").innerHTML.indexOf("加载中") >= 0) showWeather(null);
+    }, 14000);
+
+    // 优先用 Java 侧请求（自带 open-meteo / wttr.in 双源），彻底绕开老 WebView 的跨域限制
+    if (window.HostBridge && HostBridge.getWeatherText) {
+      reqSeq++;
+      var name = "__ws" + reqSeq;
+      window[name] = function(txt){ if (weatherTimer) clearTimeout(weatherTimer); showWeather(txt); };
+      try { HostBridge.getWeatherText(LAT, LON, name); return; } catch(e){}
+    }
+
     var url = "https://api.open-meteo.com/v1/forecast?latitude=" + LAT + "&longitude=" + LON +
       "&current=temperature_2m,weather_code&timezone=auto&t=" + Math.floor(new Date().getTime() / 1000);
     request(url, function(txt){
-      if (!txt) { retryWeather(); return; }
+      if (!txt) { showWeather(null); return; }
       try {
         var o = JSON.parse(txt), c = o.current || o.current_weather;
-        if (!c) { retryWeather(); return; }
+        if (!c) { showWeather(null); return; }
         var t = Math.round(c.temperature_2m !== undefined ? c.temperature_2m : c.temperature);
         var code = c.weather_code !== undefined ? c.weather_code : c.weathercode;
+        if (weatherTimer) clearTimeout(weatherTimer);
         $("weather").innerHTML = (WMO[code] || "阴") + " &nbsp;" + t + "° &nbsp;·&nbsp; " + CITY;
-      } catch(e){ retryWeather(); }
+      } catch(e){ showWeather(null); }
     });
   }
   function retryWeather(){
-    $("weather").innerHTML = "天气获取失败";
+    showWeather(null);
     if (weatherTimer) clearTimeout(weatherTimer);
     weatherTimer = setTimeout(loadWeather, 60000);
   }
@@ -335,8 +463,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e
   /* ---------- 设置面板 ---------- */
   function buildPanel(){
     var p = $("panel"), html = "", i;
-    html += '<div class="p-head">外观与显示</div>';
+    html += '<div class="p-head"><span>外观与显示</span><span class="done" id="doneBtn">完成</span></div>';
     html += '<div class="swatches" id="swatches"></div>';
+    html += '<div class="p-head">背景图片</div>';
+    html += '<div class="row"><span class="k">背景</span>' +
+      '<span class="btn" data-bg="0">纯色</span><span class="btn" data-bg="1">相册图</span></div>';
+    html += '<div class="row"><span class="k">相册图片</span>' +
+      '<span class="btn" id="pickBgBtn">选择…</span><span class="btn" id="clearBgBtn">清除</span></div>';
     html += row("显示秒", "sec");
     html += row("显示日期", "date");
     html += row("显示农历", "lunar");
@@ -394,6 +527,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e
     for (i = 0; i < orients.length; i++) {
       orients[i].className = "btn" + (parseInt(orients[i].getAttribute("data-orient"), 10) === S.orient ? " on" : "");
     }
+    var bgs = document.querySelectorAll("[data-bg]");
+    for (i = 0; i < bgs.length; i++) {
+      var bw = parseInt(bgs[i].getAttribute("data-bg"), 10);
+      var onBg = bw === 1 ? (S.bgimg && !!CUSTOM_BG) : !(S.bgimg && !!CUSTOM_BG);
+      bgs[i].className = "btn" + (onBg ? " on" : "");
+    }
+    var pickBtn = $("pickBgBtn");
+    if (pickBtn) pickBtn.innerHTML = CUSTOM_BG ? "换一张…" : "选择…";
   }
   function onPanelClick(ev){
     var t = ev.target || ev.srcElement;
@@ -402,8 +543,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e
     var theme = t.getAttribute && t.getAttribute("data-theme");
     var size = t.getAttribute && t.getAttribute("data-size");
     var orient = t.getAttribute && t.getAttribute("data-orient");
+    var bg = t.getAttribute && t.getAttribute("data-bg");
 
     if (key) { S[key] = S[key] ? 0 : 1; }
+    else if (bg !== null && bg !== undefined && bg !== "") {
+      if (bg === "1" && !CUSTOM_BG) { pickCustomBg(); return; }
+      S.bgimg = parseInt(bg, 10);
+    }
     else if (theme !== null && theme !== undefined && theme !== "") {
       S.theme = parseInt(theme, 10);
       var dots = document.querySelectorAll(".dot"), i;
@@ -414,7 +560,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e
     }
     else if (size !== null && size !== undefined && size !== "") { S.size = parseInt(size, 10); }
     else if (orient !== null && orient !== undefined && orient !== "") { S.orient = parseInt(orient, 10); applyOrient(); }
+    else if (t.id === "pickBgBtn") { pickCustomBg(); return; }
+    else if (t.id === "clearBgBtn") { clearCustomBg(); return; }
     else if (t.id === "tryBtn") { playChime(); }
+    else if (t.id === "doneBtn") { $("panel").className = ""; return; }
 
     save(); refreshPanel(); layout();
     if (key === "weather" && S.weather) loadWeather();
@@ -422,12 +571,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0c0e;color:#f4f1e
 
   /* ---------- 启动 ---------- */
   function boot(){
+    loadCustomBg();
     buildPanel();
     layout();
     tick();
     setInterval(tick, 500);
     if (S.weather) locate();
     applyOrient();
+    $("weather").onclick = function(){ if (S.weather) { loadWeather(); } };
+    window.__relayout = function(){ layout(); tick(); };
     window.onresize = function(){ setTimeout(layout, 120); };
     window.onorientationchange = function(){ setTimeout(layout, 220); };
     // 首次触摸时解锁音频
